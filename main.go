@@ -65,7 +65,7 @@ func (m meta) resourceName() string {
 // 	}
 //   }
 
-func makeTFManifest(m map[string]interface{}) (string, interface{}, error) {
+func makeTFManifest(m map[string]interface{}, prevName string) (string, interface{}, error) {
 
 	d, err := json.Marshal(m)
 	if err != nil {
@@ -79,9 +79,17 @@ func makeTFManifest(m map[string]interface{}) (string, interface{}, error) {
 		return "", nil, errors.Wrap(err, "while unmarshalling meta header")
 	}
 
+	delete(m, "status")
+
 	res := map[string]interface{}{
 		"manifest": m,
 		"provider": "kubernetes-alpha",
+	}
+
+	if prevName != "" {
+		res["depends_on"] = []string{
+			fmt.Sprintf("kubernetes_manifest.%s", prevName),
+		}
 	}
 
 	resMap := map[string]interface{}{}
@@ -114,7 +122,9 @@ func main() {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 
-			for {
+			prevName := ""
+
+			for i := 0; ; i++ {
 
 				obj := map[string]interface{}{}
 
@@ -127,12 +137,14 @@ func main() {
 					return errors.Wrap(err, "while parsing yaml stream")
 				}
 
-				resourceName, tfm, err := makeTFManifest(obj)
+				resourceName, tfm, err := makeTFManifest(obj, "")
 				if err != nil {
 					return errors.Wrap(err, "while creating TF manifest")
 				}
 
-				fileName := fmt.Sprintf("%s.tf.json", resourceName)
+				prevName = resourceName
+
+				fileName := fmt.Sprintf("%03d-%s.tf.json", i, prevName)
 
 				d, err := json.MarshalIndent(tfm, "", "  ")
 				if err != nil {
